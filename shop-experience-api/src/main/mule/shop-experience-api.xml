@@ -1,0 +1,249 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<mule xmlns:doc="http://www.mulesoft.org/schema/mule/documentation"
+      xmlns:ee="http://www.mulesoft.org/schema/mule/ee/core"
+      xmlns:http="http://www.mulesoft.org/schema/mule/http"
+      xmlns="http://www.mulesoft.org/schema/mule/core"
+      xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="
+      http://www.mulesoft.org/schema/mule/core http://www.mulesoft.org/schema/mule/core/current/mule.xsd
+      http://www.mulesoft.org/schema/mule/http http://www.mulesoft.org/schema/mule/http/current/mule-http.xsd
+      http://www.mulesoft.org/schema/mule/ee/core http://www.mulesoft.org/schema/mule/ee/core/current/mule-ee.xsd">
+
+    <!-- ─────────────────────────────────────────── -->
+    <!--  Properties                                 -->
+    <!-- ─────────────────────────────────────────── -->
+
+    <!-- ─────────────────────────────────────────── -->
+    <!--  HTTP Listener (8085)                       -->
+    <!-- ─────────────────────────────────────────── -->
+    <http:listener-config name="HTTP_Listener">
+        <http:listener-connection host="0.0.0.0" port="8081"/>
+    </http:listener-config>
+
+    <!-- ─────────────────────────────────────────── -->
+    <!--  Downstream HTTP Request Configs            -->
+    <!-- ─────────────────────────────────────────── -->
+    <http:request-config name="Orders_API">
+        <http:request-connection host="order-system-api-7c56my.5sc6y6-3.usa-e2.cloudhub.io" protocol="HTTPS"/>
+    </http:request-config>
+
+    <http:request-config name="Customers_API">
+        <http:request-connection host="customer-system-api-7c56my.5sc6y6-3.usa-e2.cloudhub.io" protocol="HTTPS"/>
+    </http:request-config>
+
+    <http:request-config name="Inventory_API">
+        <http:request-connection host="inventory-system-api-7c56my.5sc6y6-3.usa-e2.cloudhub.io" protocol="HTTPS"/>
+    </http:request-config>
+
+    <http:request-config name="Process_API">
+        <http:request-connection host="order-process-api-7c56my.5sc6y6-1.usa-e2.cloudhub.io"/>
+    </http:request-config>
+
+    <!-- ─────────────────────────────────────────── -->
+    <!--  Global Error Handler                       -->
+    <!-- ─────────────────────────────────────────── -->
+    <error-handler name="global-error-handler">
+        <on-error-propagate type="HTTPS:NOT_FOUND">
+            <set-variable variableName="httpStatus" value="404"/>
+            <set-payload value ='#[%dw 2.0
+output application/json
+---
+{ error: "Resource not found" }]'/>
+        </on-error-propagate>
+
+        <on-error-propagate type="HTTP:CONNECTIVITY">
+            <set-variable variableName="httpStatus" value="502"/>
+            <set-payload value ='#[%dw 2.0
+output application/json
+---
+{ error: "Downstream connectivity issue", description: error.description }]'/>
+        </on-error-propagate>
+
+        <on-error-continue type="ANY">
+            <set-variable variableName="httpStatus" value="500"/>
+            <set-payload value ='#[%dw 2.0
+output application/json
+---
+{ error: error.errorType.identifier, description: error.description default "Internal error" }]'/>
+        </on-error-continue>
+    </error-handler>
+
+<!-- ─────────────────────────────────────────── -->
+<!--  FLOW : GET /shop/customers/{id}/orders    -->
+<!-- ─────────────────────────────────────────── -->
+<flow name="getOrdersForCustomer">
+    <http:listener config-ref="HTTP_Listener"
+                   path="/shop/customers/{cid}/orders"
+                   allowedMethods="GET">
+			<http:response statusCode="#[vars.httpStatus]" />
+			<http:error-response statusCode="#[vars.httpStatus]" >
+				<http:body ><![CDATA[#[payload]]]></http:body>
+			</http:error-response>
+		</http:listener>
+
+    <!-- 1. Path variable -->
+    <set-variable variableName="cid" value="#[attributes.uriParams.cid]"/>
+
+    <!-- 2. Ensure customer exists -->
+    <http:request config-ref="Customers_API"
+                  path= "#['/api/customers/' ++ vars.cid]"
+                  method="GET"/>
+
+    <choice>
+        <when expression="#[attributes.statusCode == 404]">
+            <raise-error type="HTTPS:NOT_FOUND" description="Customer not found"/>
+        </when>
+    </choice>
+
+    <!-- 3. Fetch ALL orders (System API) -->
+    <!-- If your Orders API supports query param like /api/orders?customerId= -->
+    <!-- you may call that instead. -->
+    <http:request config-ref="Orders_API"
+                  path="/api/orders"
+                  method="GET"/>
+
+    <!-- 4. Filter + shape -->
+    <ee:transform doc:name="Filter by customer">
+        <ee:message>
+            <ee:set-payload><![CDATA[%dw 2.0
+output application/json
+var cid = vars.cid as String
+---
+(payload filter ($.customer_id as String == cid)) map (o) -> {
+  orderId : o.order_id,
+  status  : o.status,
+  total   : o.order_total,
+  placed  : o.created_at
+}]]></ee:set-payload>
+        </ee:message>
+    </ee:transform>
+		<error-handler >
+			<on-error-propagate enableNotifications="true" logException="true" doc:name="On Error Propagate" doc:id="8599b156-fcc8-4fd5-b597-74ee577077db" type="HTTPS:NOT_FOUND" >
+				<set-variable value="404" doc:name="Set Variable" doc:id="e54ea98c-36e6-4cc8-8885-02aec69e8648" variableName="httpStatus" />
+				<set-payload value='#[%dw 2.0&#10;output application/json&#10;---&#10;{ error: "Resource not found" }]' doc:name="Set Payload" doc:id="c19623bc-49fa-4984-b31a-6e31c8f58fb2" />
+			</on-error-propagate>
+			<on-error-propagate enableNotifications="true" logException="true" doc:name="On Error Propagate1" doc:id="5a82517b-1667-45e7-a413-173e8d3d28f5" type="HTTP:CONNECTIVITY" >
+				<set-variable value="502" doc:name="Set Variable" doc:id="eef01dbe-55be-472c-8c70-6e7529cf4611" variableName="httpStatus" />
+				<set-payload value='#[%dw 2.0&#10;output application/json&#10;---&#10;{ error: "Downstream connectivity issue", description: error.description }]' doc:name="Set Payload" doc:id="252725d6-fbe2-42c7-9bf4-62e5ef9977d5" />
+			</on-error-propagate>
+			<on-error-continue enableNotifications="true" logException="true" doc:name="On Error Continue" doc:id="55f4b6c1-468b-465e-82f3-5fa56e5141f6" type="ANY" >
+				<set-variable value="500" doc:name="Set Variable" doc:id="5caf80b2-65af-4c14-a9fd-d28225fe24d3" variableName="httpStatus" />
+				<set-payload value='#[%dw 2.0&#10;output application/json&#10;---&#10;{ error: error.errorType.identifier, description: error.description default "Internal error" }]' doc:name="Set Payload" doc:id="7b0d6044-b211-4a56-affe-ae0211272d8a" />
+			</on-error-continue>
+		</error-handler>
+
+</flow>
+
+
+
+
+    <!-- ─────────────────────────────────────────── -->
+    <!--  FLOW 2 : GET /shop/orders/{id}            -->
+    <!-- ─────────────────────────────────────────── -->
+<flow name="getShopOrderById">
+    <http:listener config-ref="HTTP_Listener"
+                   path="/shop/orders/{id}" allowedMethods="GET">
+			<http:response statusCode="#[vars.httpStatus]" />
+			<http:error-response statusCode="#[vars.httpStatus]" >
+				<http:body ><![CDATA[#[payload]]]></http:body>
+			</http:error-response>
+		</http:listener>
+
+    <!-- 1. Extract path param -->
+    <logger level="INFO" doc:name="Logger" doc:id="4b95a35d-b38b-4aed-8dc7-033d39fd40e6" message="#[attributes.uriParams.id]"/>
+		<set-variable variableName="oid" value="#[attributes.uriParams.id]"/>
+
+    <!-- 2. Get Order -->
+    <http:request config-ref="Orders_API"
+                  path="#['/api/orders/' ++ vars.oid]" method="GET"/>
+    
+    <!-- 3. Handle not found -->
+    <choice>
+        <when expression="#[isEmpty(payload)]">
+            <raise-error type="HTTPS:NOT_FOUND" description="Order not found"/>
+        </when>
+    </choice>
+
+    <!-- 4. Extract order object -->
+    <set-variable variableName="order" value="#[payload]"/>
+
+    <!-- 5. Fetch customer info -->
+    <logger level="INFO" doc:name="Logger" doc:id="a932eacd-3b71-46d5-815e-d8126fb4664d" message="#[vars.order]"/>
+		<http:request config-ref="Customers_API"
+                  path="#['/api/customers/' ++ vars.order.customer_id]" method="GET"/>
+    <set-variable variableName="cust" value="#[payload]"/>
+
+    <!-- 6. Shape response -->
+    <ee:transform>
+        <ee:message>
+            <ee:set-payload><![CDATA[%dw 2.0
+output application/json
+---
+{
+  orderId   : vars.order.order_id,
+  status    : vars.order.status,
+  total     : vars.order.order_total,
+  placed    : vars.order.created_at,
+  customer  : {
+    id    : vars.cust.customer_id,
+    name  : vars.cust.name,
+    email : vars.cust.email
+  }
+}]]></ee:set-payload>
+        </ee:message>
+    </ee:transform>
+		<error-handler >
+			<on-error-propagate enableNotifications="true" logException="true" doc:name="On Error Propagate" doc:id="3832cff2-89a6-4d37-98c9-c6f63f53d2ec" type="HTTPS:NOT_FOUND" >
+				<set-variable value="404" doc:name="Set Variable" doc:id="7c7e0684-f6ef-4092-85c1-9f282d21c71b" variableName="httpStatus" />
+				<set-payload value='#[%dw 2.0&#10;output application/json&#10;---&#10;{ error: "Resource not found" }]' doc:name="Set Payload" doc:id="24600dc3-a9b4-444b-b13f-1ee176648d98" />
+			</on-error-propagate>
+			<on-error-propagate enableNotifications="true" logException="true" doc:name="On Error Propagate1" doc:id="75525df8-d18f-4806-9d3b-2130d28c507f" type="HTTP:CONNECTIVITY" >
+				<set-variable value="502" doc:name="Set Variable" doc:id="90ce6de4-ecc5-4f89-8cb8-3532be220712" variableName="httpStatus" />
+				<set-payload value='#[%dw 2.0&#10;output application/json&#10;---&#10;{ error: "Downstream connectivity issue", description: error.description }]' doc:name="Set Payload" doc:id="56a2df6f-e9be-447c-9f1e-808dc39da4cf" />
+			</on-error-propagate>
+			<on-error-continue enableNotifications="true" logException="true" doc:name="On Error Continue" doc:id="61cccbef-3883-4518-b661-548a8187ceb8" type="ANY" >
+				<set-variable value="500" doc:name="Set Variable" doc:id="235f7f4e-b2cc-4e2b-9dae-a505e509dd46" variableName="httpStatus" />
+				<set-payload value='#[%dw 2.0&#10;output application/json&#10;---&#10;{ error: error.errorType.identifier, description: error.description default "Internal error" }]' doc:name="Set Payload" doc:id="ef4e0c3c-aa5f-4ca0-93c3-1f868d06b9ae" />
+			</on-error-continue>
+		</error-handler>
+
+</flow>
+
+    <!-- ─────────────────────────────────────────── -->
+    <!--  FLOW 3 : GET /shop/products               -->
+    <!-- ─────────────────────────────────────────── -->
+    <flow name="getShopProducts">
+        <http:listener config-ref="HTTP_Listener"
+                       path="/shop/products" allowedMethods="GET">
+			<http:response statusCode="#[vars.httpStatus]" />
+			<http:error-response statusCode="#[vars.httpStatus]" >
+				<http:body ><![CDATA[#[payload]]]></http:body>
+			</http:error-response>
+		</http:listener>
+        <http:request config-ref="Inventory_API"
+                      path="/api/inventory" method="GET"/>
+
+        <!-- Keep only fields the UI needs -->
+        <ee:transform>
+            <ee:message>
+                <ee:set-payload><![CDATA[%dw 2.0
+output application/json
+---
+payload map (p) -> {
+  materialId : p.material_id,
+  available  : p.quantity
+}]]></ee:set-payload>
+            </ee:message>
+        </ee:transform>
+		<error-handler >
+			<on-error-propagate enableNotifications="true" logException="true" doc:name="On Error Propagate" doc:id="a044a6b8-1be8-4938-b219-499183f9a5f4" type="HTTP:CONNECTIVITY" >
+				<set-variable value="502" doc:name="Set Variable" doc:id="8867aae6-a05a-496b-8188-e506eca028c0" variableName="httpStatus" />
+				<set-payload value='#[%dw 2.0&#10;output application/json&#10;---&#10;{ error: "Downstream connectivity issue", description: error.description }]' doc:name="Set Payload" doc:id="fefba838-947e-48bd-a91a-c33d2df009d5" />
+			</on-error-propagate>
+			<on-error-continue enableNotifications="true" logException="true" doc:name="On Error Continue" doc:id="03393624-1ecb-465d-bafd-9dffd4a98def" type="ANY" >
+				<set-variable value="500" doc:name="Set Variable" doc:id="05e54c43-c6e5-474e-9160-252b1d7402e4" variableName="httpStatus" />
+				<set-payload value='#[%dw 2.0&#10;output application/json&#10;---&#10;{ error: error.errorType.identifier, description: error.description default "Internal error" }]' doc:name="Set Payload" doc:id="acaaa272-1626-46bb-aa71-e395c9ae36f6" />
+			</on-error-continue>
+		</error-handler>
+    
+</flow>
+</mule>

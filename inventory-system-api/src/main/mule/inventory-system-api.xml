@@ -1,0 +1,304 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<mule xmlns:ee="http://www.mulesoft.org/schema/mule/ee/core"
+      xmlns:db="http://www.mulesoft.org/schema/mule/db"
+      xmlns:http="http://www.mulesoft.org/schema/mule/http"
+      xmlns="http://www.mulesoft.org/schema/mule/core"
+      xmlns:doc="http://www.mulesoft.org/schema/mule/documentation"
+      xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+      xsi:schemaLocation="
+          http://www.mulesoft.org/schema/mule/core http://www.mulesoft.org/schema/mule/core/current/mule.xsd
+          http://www.mulesoft.org/schema/mule/http http://www.mulesoft.org/schema/mule/http/current/mule-http.xsd
+          http://www.mulesoft.org/schema/mule/db http://www.mulesoft.org/schema/mule/db/current/mule-db.xsd
+          http://www.mulesoft.org/schema/mule/ee/core http://www.mulesoft.org/schema/mule/ee/core/current/mule-ee.xsd">
+
+    <configuration-properties file="config.properties" doc:name="Config Properties"/>
+
+    <http:listener-config name="HTTP_Listener_config" doc:name="HTTP Listener config">
+        <http:listener-connection host="0.0.0.0" port="8081"/>
+    </http:listener-config>
+
+    <db:config name="Database_Config" doc:name="Database Config">
+        <db:my-sql-connection host="${db.host}" port="${db.port}"
+                              user="${db.username}" password="${db.password}"
+                              database="${db.name}"/>
+    </db:config>
+
+    <!-- -&#45;&#45;&#45;&#45;&#45;&#45;&#45;&#45;&#45; GLOBAL ERROR HANDLER -&#45;&#45;&#45;&#45;&#45;&#45;&#45;&#45;&#45; -->
+    <error-handler name="global-error-handler">
+        <on-error-propagate type="INVENTORY:NOT_FOUND">
+            <set-variable variableName="httpStatus" value="404"/>
+            <ee:transform><ee:message><ee:set-payload><![CDATA[%dw 2.0
+output application/json
+---
+{ error: "Not Found", description: error.description }]]></ee:set-payload></ee:message></ee:transform>
+        </on-error-propagate>
+
+        <on-error-propagate type="VALIDATION:BAD_REQUEST">
+            <set-variable variableName="httpStatus" value="400"/>
+            <ee:transform><ee:message><ee:set-payload><![CDATA[%dw 2.0
+output application/json
+---
+{ error: "Bad Request", description: error.description }]]></ee:set-payload></ee:message></ee:transform>
+        </on-error-propagate>
+
+        <on-error-propagate type="DB:CONNECTIVITY">
+            <set-variable variableName="httpStatus" value="502"/>
+            <ee:transform><ee:message><ee:set-payload><![CDATA[%dw 2.0
+output application/json
+---
+{ error: "Database connectivity issue", description: error.description default "Unable to connect to DB" }]]></ee:set-payload></ee:message></ee:transform>
+        </on-error-propagate>
+
+        <on-error-continue type="ANY">
+            <set-variable variableName="httpStatus" value="500"/>
+            <ee:transform><ee:message><ee:set-payload><![CDATA[%dw 2.0
+output application/json
+---
+{ error: error.errorType.namespace ++ ":" ++ error.errorType.identifier, description: error.description default "Internal Server Error" }]]></ee:set-payload></ee:message></ee:transform>
+        </on-error-continue>
+    </error-handler>
+
+    <!-- -&#45;&#45;&#45;&#45;&#45;&#45;&#45;&#45;&#45; FLOWS -&#45;&#45;&#45;&#45;&#45;&#45;&#45;&#45;&#45; -->
+
+    <!-- GET ALL -->
+    <flow name="getInventories">
+        <http:listener config-ref="HTTP_Listener_config" path="/api/inventory" allowedMethods="GET">
+			<http:response statusCode="#[vars.httpStatus]" />
+			<http:error-response statusCode="#[vars.httpStatus]" >
+				<http:body ><![CDATA[#[payload]]]></http:body>
+			</http:error-response>
+		</http:listener>
+        <db:select config-ref="Database_Config">
+            <db:sql><![CDATA[SELECT * FROM Inventory]]></db:sql>
+        </db:select>
+        <ee:transform><ee:message><ee:set-payload><![CDATA[%dw 2.0
+output application/json
+---
+payload]]></ee:set-payload></ee:message></ee:transform>
+		<error-handler >
+			<on-error-propagate enableNotifications="true" logException="true" doc:name="On Error Propagate" doc:id="54ea9d56-f23a-42e9-960d-1577a0137e85" type="DB:CONNECTIVITY" >
+				<set-variable value="502" doc:name="Set Variable" doc:id="926ede8a-bb4a-4cd8-9ab7-f456416cdb6b" variableName="httpStatus" />
+				<ee:transform doc:name="Transform Message" doc:id="36e99808-04f3-468a-a4c4-8292de89a8dd" >
+					<ee:message >
+						<ee:set-payload ><![CDATA[%dw 2.0
+output application/json
+---
+{ error: "Database connectivity issue", description: error.description default "Unable to connect to DB" }]]></ee:set-payload>
+					</ee:message>
+				</ee:transform>
+			</on-error-propagate>
+		</error-handler>
+    
+</flow>
+
+    <!-- GET BY ID -->
+    <flow name="getInventoryById">
+        <http:listener config-ref="HTTP_Listener_config" path="/api/inventory/{material_id}" allowedMethods="GET">
+			<http:response statusCode="#[vars.httpStatus]" />
+			<http:error-response statusCode="#[vars.httpStatus]" >
+				<http:body ><![CDATA[#[payload]]]></http:body>
+			</http:error-response>
+		</http:listener>
+        <db:select config-ref="Database_Config">
+            <db:sql><![CDATA[SELECT * FROM Inventory WHERE material_id = :material_id]]></db:sql>
+            <db:input-parameters><![CDATA[#["material_id": attributes.uriParams.material_id]]]></db:input-parameters>
+        </db:select>
+        <choice>
+            <when expression="#[!isEmpty(payload)]">
+                <ee:transform><ee:message><ee:set-payload><![CDATA[%dw 2.0
+output application/json
+---
+payload[0]]]></ee:set-payload></ee:message></ee:transform>
+            </when>
+            <otherwise>
+                <raise-error type="INVENTORY:NOT_FOUND" description="Material not found"/>
+            </otherwise>
+        </choice>
+		<error-handler >
+			<on-error-propagate enableNotifications="true" logException="true" doc:name="On Error Propagate" doc:id="9920246b-17eb-4cc5-a28a-b7b28834958e" type="DB:CONNECTIVITY" >
+				<set-variable value="502" doc:name="Set Variable" doc:id="12c59519-a5db-4860-8c04-c49f11b6ad7e" variableName="httpStatus" />
+				<ee:transform doc:name="Transform Message" doc:id="7cc19f2f-1a56-4fc2-8f66-e42f2119435c" >
+					<ee:message >
+						<ee:set-payload ><![CDATA[%dw 2.0
+output application/json
+---
+{ error: "Database connectivity issue", description: error.description default "Unable to connect to DB" }]]></ee:set-payload>
+					</ee:message>
+				</ee:transform>
+			</on-error-propagate>
+			<on-error-propagate enableNotifications="true" logException="true" doc:name="On Error Propagate1" doc:id="695e8ea0-a420-4e07-80a3-4d632c3e67ac" type="INVENTORY:NOT_FOUND" >
+				<set-variable value="404" doc:name="Set Variable" doc:id="a94430f2-b2aa-4bf7-baa9-58530458a41e" variableName="httpStatus" />
+				<ee:transform doc:name="Transform Message" doc:id="555893ff-8733-4415-8996-356aeb5cc4f8" >
+					<ee:message >
+						<ee:set-payload ><![CDATA[%dw 2.0
+output application/json
+---
+{ error: "Not Found", description: error.description }]]></ee:set-payload>
+					</ee:message>
+				</ee:transform>
+			</on-error-propagate>
+		</error-handler>
+    
+</flow>
+
+    <!-- CREATE -->
+    <flow name="createInventory">
+        <http:listener config-ref="HTTP_Listener_config" path="/api/inventory" allowedMethods="POST">
+			<http:response statusCode="#[vars.httpStatus]" />
+			<http:error-response statusCode="#[vars.httpStatus]" >
+				<http:body ><![CDATA[#[payload]]]></http:body>
+			</http:error-response>
+		</http:listener>
+        <choice>
+            <when expression="#[(payload.materialId default null) == null or (payload.plant default null) == null or (payload.quantity default null) == null]">
+                <raise-error type="VALIDATION:BAD_REQUEST" description="materialId, plant, quantity are required"/>
+            </when>
+        </choice>
+        <db:insert config-ref="Database_Config">
+            <db:sql><![CDATA[
+                INSERT INTO Inventory (material_id, plant, quantity)
+                VALUES (:material_id, :plant, :quantity)
+            ]]></db:sql>
+            <db:input-parameters><![CDATA[#[{
+  material_id: payload.materialId,
+  plant: payload.plant,
+  quantity: payload.quantity
+}]]]></db:input-parameters>
+        </db:insert>
+        <set-variable variableName="httpStatus" value="201"/>
+        <ee:transform><ee:message><ee:set-payload><![CDATA[%dw 2.0
+output application/json
+---
+{ success: true, message: "Inventory record created" }]]></ee:set-payload></ee:message></ee:transform>
+		<error-handler >
+			<on-error-propagate enableNotifications="true" logException="true" doc:name="On Error Propagate" doc:id="2c90df72-1c75-41d5-997f-9753ada4f90c" type="DB:CONNECTIVITY" >
+				<set-variable value="502" doc:name="Set Variable" doc:id="bd244f95-ff65-44cb-bcae-e5b1039d98d0" variableName="httpStatus" />
+				<ee:transform doc:name="Transform Message" doc:id="a1923e3e-7fa1-4ef8-a367-478672045712" >
+					<ee:message >
+						<ee:set-payload ><![CDATA[%dw 2.0
+output application/json
+---
+{ error: "Database connectivity issue", description: error.description default "Unable to connect to DB" }]]></ee:set-payload>
+					</ee:message>
+				</ee:transform>
+			</on-error-propagate>
+			<on-error-propagate enableNotifications="true" logException="true" doc:name="On Error Propagate1" doc:id="9d69428a-f875-402f-887c-cc98dc786605" type="VALIDATION:BAD_REQUEST" >
+				<set-variable value="400" doc:name="Set Variable" doc:id="118d97e3-ab75-4c00-b332-cad493e9c4b9" variableName="httpStatus" />
+				<ee:transform doc:name="Transform Message" doc:id="0a87566b-277d-4a40-95b4-52f66b31804c" >
+					<ee:message >
+						<ee:set-payload ><![CDATA[%dw 2.0
+output application/json
+---
+{ error: "Bad Request", description: error.description }]]></ee:set-payload>
+					</ee:message>
+				</ee:transform>
+			</on-error-propagate>
+		</error-handler>
+    
+</flow>
+
+    <!-- UPDATE -->
+    <flow name="updateInventory">
+        <http:listener config-ref="HTTP_Listener_config" path="/api/inventory/{material_id}" allowedMethods="PUT">
+			<http:response statusCode="#[vars.httpStatus]" />
+			<http:error-response statusCode="#[vars.httpStatus]" >
+				<http:body ><![CDATA[#[payload]]]></http:body>
+			</http:error-response>
+		</http:listener>
+        <choice>
+            <when expression="#[(payload.plant default null) == null or (payload.quantity default null) == null]">
+                <raise-error type="VALIDATION:BAD_REQUEST" description="plant and quantity are required"/>
+            </when>
+        </choice>
+        <db:update config-ref="Database_Config">
+            <db:sql><![CDATA[
+               UPDATE Inventory
+               SET plant = :plant, quantity = :quantity
+               WHERE material_id = :material_id
+            ]]></db:sql>
+            <db:input-parameters><![CDATA[#[{
+  plant: payload.plant,
+  quantity: payload.quantity,
+  material_id: attributes.uriParams.material_id
+}]]]></db:input-parameters>
+        </db:update>
+        <choice>
+            <when expression="#[(payload.affectedRows default 0) > 0]">
+                <set-variable variableName="httpStatus" value="200"/>
+                <ee:transform><ee:message><ee:set-payload><![CDATA[%dw 2.0
+output application/json
+---
+{ success: true, message: "Inventory updated" }]]></ee:set-payload></ee:message></ee:transform>
+            </when>
+            <otherwise>
+                <raise-error type="INVENTORY:NOT_FOUND" description="No matching record"/>
+            </otherwise>
+        </choice>
+		<error-handler >
+			<on-error-propagate enableNotifications="true" logException="true" doc:name="On Error Propagate" doc:id="b1c29efa-58e2-4674-9ac0-c26cd48f1692" type="DB:CONNECTIVITY" >
+				<set-variable value="502" doc:name="Set Variable" doc:id="6162f639-b169-4d64-b59f-9fe3b054cb49" variableName="httpStatus" />
+				<ee:transform doc:name="Transform Message" doc:id="1e2f5a9c-5c2a-4512-8cd9-11a04b176b2a" >
+					<ee:message >
+						<ee:set-payload ><![CDATA[%dw 2.0
+output application/json
+---
+{ error: "Database connectivity issue", description: error.description default "Unable to connect to DB" }]]></ee:set-payload>
+					</ee:message>
+				</ee:transform>
+			</on-error-propagate>
+			<on-error-propagate enableNotifications="true" logException="true" doc:name="On Error Propagate1" doc:id="f6749c3e-750a-4e59-8550-fd7ca0324814" type="VALIDATION:BAD_REQUEST" >
+				<set-variable value="400" doc:name="Set Variable" doc:id="9a03a9e7-6af8-4c85-9f91-775bc9373b4c" variableName="httpStatus" />
+				<ee:transform doc:name="Transform Message" doc:id="afd94b1f-f25e-48c9-9fa8-fa74fcceb239" >
+					<ee:message >
+						<ee:set-payload ><![CDATA[%dw 2.0
+output application/json
+---
+{ error: "Bad Request", description: error.description }]]></ee:set-payload>
+					</ee:message>
+				</ee:transform>
+			</on-error-propagate>
+			<on-error-propagate enableNotifications="true" logException="true" doc:name="On Error Propagate2" doc:id="31e4db05-df0a-4ed4-ba64-df99d9ef5b74" type="INVENTORY:NOT_FOUND" >
+				<set-variable value="404" doc:name="Set Variable" doc:id="cf976c67-b769-4e69-b305-ec80c46bf908" variableName="httpStatus" />
+				<ee:transform doc:name="Transform Message" doc:id="23b29e7a-596c-420e-bc17-25d783068547" >
+					<ee:message >
+						<ee:set-payload ><![CDATA[%dw 2.0
+output application/json
+---
+{ error: "Not Found", description: error.description }]]></ee:set-payload>
+					</ee:message>
+				</ee:transform>
+			</on-error-propagate>
+		</error-handler>
+    
+</flow>
+
+    <!-- DELETE -->
+    <flow name="deleteInventory">
+        <http:listener config-ref="HTTP_Listener_config" path="/api/inventory/{material_id}" allowedMethods="DELETE">
+			<http:response statusCode="#[vars.httpStatus]" />
+			<http:error-response statusCode="#[vars.httpStatus]" >
+				<http:body ><![CDATA[#[payload]]]></http:body>
+			</http:error-response>
+		</http:listener>
+        <db:delete config-ref="Database_Config">
+            <db:sql><![CDATA[DELETE FROM Inventory WHERE material_id = :material_id]]></db:sql>
+            <db:input-parameters><![CDATA[#[{ material_id: attributes.uriParams.material_id }]]]></db:input-parameters>
+        </db:delete>
+        <set-payload value="[]"/>
+		<set-variable value="204" doc:name="Set Variable" doc:id="cd026670-9ee9-43e8-94db-3a4a20762389" variableName="httpStatus"/>
+		<error-handler >
+			<on-error-propagate enableNotifications="true" logException="true" doc:name="On Error Propagate" doc:id="f52bfe08-1230-4f66-b96c-ec8ec0ed6f7e" type="DB:CONNECTIVITY" >
+				<set-variable value="502" doc:name="Set Variable" doc:id="58a187d3-6d02-47db-bc51-a9e396dddfd3" variableName="httpStatus" />
+				<ee:transform doc:name="Transform Message" doc:id="0c95bde6-feef-4ff4-a4c9-50e932f5dfac" >
+					<ee:message >
+						<ee:set-payload ><![CDATA[%dw 2.0
+output application/json
+---
+{ error: "Database connectivity issue", description: error.description default "Unable to connect to DB" }]]></ee:set-payload>
+					</ee:message>
+				</ee:transform>
+			</on-error-propagate>
+		</error-handler>
+    
+</flow>
+</mule>

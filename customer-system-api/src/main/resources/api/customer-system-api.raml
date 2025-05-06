@@ -1,0 +1,147 @@
+#%RAML 1.0
+title: Customer System API
+version: v1
+baseUri: https://customer-system-api-7c56my.5sc6y6-3.usa-e2.cloudhub.io/api
+mediaType: application/json
+
+types:
+  Customer:
+    type: object
+    properties:
+      customerId: string
+      name: string
+      email?: string
+      phone?: string
+    example:
+      customerId: "003ABC123456"
+      name: "John Doe"
+      email: "john@example.com"
+      phone: "+44-123-456-7890"
+
+  ErrorResponse:
+    type: object
+    properties:
+      error: string
+      description: string
+    example:
+      error: "Not Found"
+      description: "Customer not found"
+
+  SuccessResponse:
+    type: object
+    properties:
+      success: boolean
+      message: string
+    example:
+      success: true
+      message: "Customer updated"
+
+  EmptyResponse:
+    type: array
+    items: any
+    example: []
+
+/customers:
+  get:
+    description: Get all customers
+    responses:
+      200:
+        body:
+          application/json:
+            type: Customer[]
+      502:
+        body:
+          application/json:
+            type: ErrorResponse
+
+  post:
+    description: Create a new customer
+    body:
+      application/json:
+        type: Customer
+        example:
+          customerId: "003XYZ654321"
+          name: "Jane Smith"
+          email: "jane@example.com"
+          phone: "+44-789-123-4560"
+    responses:
+      201:
+        body:
+          application/json:
+            type: SuccessResponse
+            example:
+              success: true
+              message: "Customer created"
+      400:
+        body:
+          application/json:
+            type: ErrorResponse
+      502:
+        body:
+          application/json:
+            type: ErrorResponse
+
+/customers/{customer_id}:
+  uriParameters:
+    customer_id:
+      type: string
+      example: "003ABC123456"
+
+  get:
+    description: Get customer by ID
+    responses:
+      200:
+        body:
+          application/json:
+            type: Customer
+      404:
+        body:
+          application/json:
+            type: ErrorResponse
+      502:
+        body:
+          application/json:
+            type: ErrorResponse
+
+  put:
+    description: Update customer by ID
+    body:
+      application/json:
+        type: object
+        properties:
+          name: string
+          email?: string
+          phone?: string
+        example:
+          name: "John A. Doe"
+          email: "john.adam@example.com"
+          phone: "+44-321-654-0987"
+    responses:
+      200:
+        body:
+          application/json:
+            type: SuccessResponse
+      400:
+        body:
+          application/json:
+            type: ErrorResponse
+      404:
+        body:
+          application/json:
+            type: ErrorResponse
+      502:
+        body:
+          application/json:
+            type: ErrorResponse
+
+  delete:
+    description: Delete a customer by ID
+    responses:
+      204:
+        body:
+          application/json:
+            type: EmptyResponse
+      502:
+        body:
+          application/json:
+            type: ErrorResponse

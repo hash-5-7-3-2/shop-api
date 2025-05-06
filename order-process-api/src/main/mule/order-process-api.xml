@@ -1,0 +1,218 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<mule xmlns:api-gateway="http://www.mulesoft.org/schema/mule/api-gateway"
+      xmlns:doc="http://www.mulesoft.org/schema/mule/documentation"
+      xmlns:ee="http://www.mulesoft.org/schema/mule/ee/core"
+      xmlns:http="http://www.mulesoft.org/schema/mule/http"
+      xmlns="http://www.mulesoft.org/schema/mule/core" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="
+        http://www.mulesoft.org/schema/mule/core http://www.mulesoft.org/schema/mule/core/current/mule.xsd
+        http://www.mulesoft.org/schema/mule/http http://www.mulesoft.org/schema/mule/http/current/mule-http.xsd
+        http://www.mulesoft.org/schema/mule/ee/core http://www.mulesoft.org/schema/mule/ee/core/current/mule-ee.xsd
+http://www.mulesoft.org/schema/mule/api-gateway http://www.mulesoft.org/schema/mule/api-gateway/current/mule-api-gateway.xsd">
+
+    <!-- ───────────────────────────────────────────────────────────── -->
+    <!--  Listener + Request configs (same as previous example)       -->
+    <!-- ───────────────────────────────────────────────────────────── -->
+    <http:listener-config name="HTTP_Listener_config">
+        <http:listener-connection host="0.0.0.0" port="8081"/>
+    </http:listener-config>
+
+
+    <!-- ───────────────────────────────────────────────────────────── -->
+    <!--  Main Flow                                                   -->
+    <!-- ───────────────────────────────────────────────────────────── -->
+    <http:request-config name="https_customer_request" doc:name="HTTP Request configuration" doc:id="eb00252e-956f-4b3d-952c-0c6b79133665">
+		<http:request-connection protocol="HTTPS" host="customer-system-api-7c56my.5sc6y6-3.usa-e2.cloudhub.io"/>
+	</http:request-config>
+	<http:request-config name="https_inventory_request" doc:name="HTTP Request configuration" doc:id="354ad56c-52fa-4cbd-a2bb-3385767458fb" >
+		<http:request-connection protocol="HTTPS" host="inventory-system-api-7c56my.5sc6y6-3.usa-e2.cloudhub.io" />
+	</http:request-config>
+	<http:request-config name="https_order_request" doc:name="HTTP Request configuration" doc:id="5ccfc3e4-e851-44e0-abf0-e7b8114566b6" >
+		<http:request-connection protocol="HTTPS" host="order-system-api-7c56my.5sc6y6-3.usa-e2.cloudhub.io" />
+	</http:request-config>
+	<api-gateway:autodiscovery apiId="20331063" ignoreBasePath="true" doc:name="API Autodiscovery" doc:id="a4a5020b-40b2-4cb0-8aa1-802a4285b0a7" flowRef="createFullOrder" />
+	<flow name="createFullOrder">
+        <http:listener config-ref="HTTP_Listener_config"
+                       path="/api/orders/full" allowedMethods="POST">
+			<http:response statusCode="#[vars.httpStatus]" />
+			<http:error-response statusCode="#[vars.httpStatus]" >
+				<http:body ><![CDATA[#[payload]]]></http:body>
+			</http:error-response>
+		</http:listener>
+
+        <!-- 1.  Payload validation (fast fail) -->
+        <choice>
+            <when expression="#[(payload.customerId default null)==null
+                               or (payload.materialId default null)==null
+                               or (payload.quantity default null)==null
+                               or (payload.quantity as Number) &lt;= 0]">
+                <raise-error type="VALIDATION:BAD_REQUEST"
+                             description="customerId, materialId, quantity (>0) required"/>
+            </when>
+        </choice>
+
+        
+		<set-variable value="#[payload.quantity]" doc:name="Set Variable" doc:id="195f9b2f-1165-41c0-a178-c58b3b735dcd" variableName="requestedQuantity"/>
+            <!-- 3.  Fetch customer + inventory IN PARALLEL -->
+            <logger level="INFO" doc:name="Logger" doc:id="e3406e07-7ad9-4ba1-a13e-cbf06f240b7e" message="#[payload]"/>
+			<scatter-gather doc:name="Parallel Fetch">
+                <route name="GetCustomer">
+                    <http:request config-ref="https_customer_request"
+                                  path="#['/api/customers/' ++ payload.customerId]"
+                                  method="GET">
+    <http:response-validator>
+        <http:success-status-code-validator values="200,404"/>
+    </http:response-validator>
+</http:request>
+					<logger level="INFO" doc:name="Logger" doc:id="d18d8890-f852-413c-8957-09669efb2fb1" message="#[payload]" />
+                
+</route>
+                <route name="GetInventory">
+                    <http:request config-ref="https_inventory_request"
+                                  path="#['/api/inventory/' ++ payload.materialId]"
+                                  method="GET">
+    <http:response-validator>
+        <http:success-status-code-validator values="200,404"/>
+    </http:response-validator>
+</http:request>
+					<logger level="INFO" doc:name="Logger" doc:id="b667d026-6e93-4719-942b-fa447f6eaba7" message="#[payload]"/>
+                
+</route>
+            </scatter-gather>
+
+            <!-- 4.  Consolidate the two results -->
+            <logger level="INFO" doc:name="Logger" doc:id="a1c15d73-45d4-4d61-a8d2-e92eb427d7bc" message="#[payload]"/>
+			<ee:transform doc:name="Aggregate Results">
+                <ee:message>
+                    <ee:set-payload><![CDATA[%dw 2.0
+output application/java
+var customerResp = payload[0]
+var inventoryResp = payload[1]
+---
+{
+  statusCustomer  : customerResp.attributes.statusCode,
+  statusInventory : inventoryResp.attributes.statusCode,
+  customerBody    : customerResp.payload,
+  inventoryBody   : inventoryResp.payload
+}]]></ee:set-payload>
+                </ee:message>
+            </ee:transform>
+
+            <!-- 5.  Decision logic -->
+            <choice>
+                <!-- Any 404 from either System API -->
+                <when expression="#[payload.statusCustomer == 404]">
+                    <set-variable variableName="httpStatus" value="404"/>
+                    <set-payload value ='#[%dw 2.0
+output application/json
+---
+{ error: "Customer not found" }]'/>
+                </when>
+
+                <when expression="#[payload.statusInventory == 404]">
+                    <set-variable variableName="httpStatus" value="404"/>
+                    <set-payload value ='#[%dw 2.0
+output application/json
+---
+{ error: "Material not found" }]'/>
+                </when>
+
+                <!-- Out of stock -->
+                <when expression="#[(payload.inventoryBody.quantity as Number) &lt; (vars.requestedQuantity)]">
+                    <set-variable variableName="httpStatus" value="409"/>
+                    <set-payload value ='#[%dw 2.0
+output application/json
+---
+{ error: "OUT_OF_STOCK" }]'/>
+                </when>
+
+                <!-- Everything good: create order -->
+                <otherwise>
+                    <!-- build order payload -->
+                    <logger level="INFO" doc:name="Logger" doc:id="54a0d82c-ac86-4c31-b7e2-4717023fa199" message="Order created - Customer: #[payload.customerBody.customer_id], Status: NEW, Total: #[(vars.requestedQuantity as Number) * 10.00]"/>
+
+                    <!-- POST order -->
+					<set-variable value="#[payload.inventoryBody.material_id]" doc:name="Set Variable" doc:id="9229e6d9-06f3-45f0-9640-e5c7812f49c6" variableName="materialId"/>
+				<set-variable value="#[payload.inventoryBody.quantity]" doc:name="Set Variable" doc:id="fe20ad52-678a-4e0e-ba1b-f23693d9f07c" variableName="inventoryQuantity"/>
+				<http:request config-ref="https_order_request"
+                                  path="/api/orders"
+                                  method="POST" doc:name="Request_create_order" outputMimeType="application/json">
+						<http:body><![CDATA[#[%dw 2.0
+output application/json
+---
+{
+  customerId : payload.customerBody.customer_id,
+  status : "NEW",
+  orderTotal : (vars.requestedQuantity as Number) * 10.00
+}]]]></http:body>
+					</http:request>
+
+                    <logger level="INFO" doc:name="Logger" doc:id="353a19bc-dd14-404c-ba94-3e7a07a0f062" message="#[payload]"/>
+					<http:request config-ref="https_inventory_request" path="#['/api/inventory/' ++ vars.materialId]" method="PUT" outputMimeType="application/json" doc:name="Update_Inventory_Quantity">
+    <http:body><![CDATA[#[%dw 2.0
+output application/json
+---
+{
+  materialId: vars.materialId,
+  plant: "UK01",
+  quantity: (vars.inventoryQuantity as Number) - (vars.requestedQuantity as Number)
+}]]]></http:body>
+</http:request>
+				<set-payload value="#[payload]" doc:name="Set Payload" doc:id="bfddeba3-9a4a-4536-860e-199510f9ea6b" />
+					<set-variable variableName="httpStatus" value="201" />
+                <!-- Update Inventory Quantity -->
+                
+</otherwise>
+
+            </choice>
+        
+
+<error-handler>
+    <on-error-propagate type="VALIDATION:BAD_REQUEST">
+        <set-variable variableName="httpStatus" value="400"/>
+        <ee:transform>
+            <ee:message>
+                <ee:set-payload><![CDATA[%dw 2.0
+output application/json
+---
+{
+  error: "Bad Request",
+  description: error.description
+}]]></ee:set-payload>
+            </ee:message>
+        </ee:transform>
+    </on-error-propagate>
+
+    <on-error-propagate type="HTTP:TIMEOUT">
+        <set-variable variableName="httpStatus" value="504"/>
+        <ee:transform>
+            <ee:message>
+                <ee:set-payload><![CDATA[%dw 2.0
+output application/json
+---
+{
+  error: "Timeout",
+  description: "One of the downstream systems timed out."
+}]]></ee:set-payload>
+            </ee:message>
+        </ee:transform>
+    </on-error-propagate>
+
+    <on-error-propagate type="ANY">
+        <set-variable variableName="httpStatus" value="500"/>
+        <ee:transform>
+            <ee:message>
+                <ee:set-payload><![CDATA[%dw 2.0
+output application/json
+---
+{
+  error: error.errorType.namespace ++ ":" ++ error.errorType.identifier,
+  description: error.description default "Unexpected error"
+}]]></ee:set-payload>
+            </ee:message>
+        </ee:transform>
+    </on-error-propagate>
+</error-handler>
+
+    
+</flow>
+</mule>

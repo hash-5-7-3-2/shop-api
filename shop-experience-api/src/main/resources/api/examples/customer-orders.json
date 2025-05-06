@@ -1,0 +1,14 @@
+[
+  {
+    "orderId": 101,
+    "status": "NEW",
+    "total": 150.0,
+    "placed": "2025-05-05T10:30:00Z"
+  },
+  {
+    "orderId": 102,
+    "status": "SHIPPED",
+    "total": 99.99,
+    "placed": "2025-05-04T15:45:00Z"
+  }
+]

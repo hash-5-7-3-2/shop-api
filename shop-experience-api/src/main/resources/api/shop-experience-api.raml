@@ -1,0 +1,148 @@
+#%RAML 1.0
+title: Shop Experience API
+version: v1
+baseUri: https://shop-experience-api-awuj9z.5sc6y6-3.usa-e2.cloudhub.io/shop
+mediaType: application/json
+
+types:
+  OrderSummary:
+    type: object
+    properties:
+      orderId: integer
+      status: string
+      total: number
+      placed: datetime
+    example:
+      orderId: 1201
+      status: "NEW"
+      total: 200.0
+      placed: 2025-05-05T14:45:00Z
+
+  CustomerOrderDetails:
+    type: object
+    properties:
+      orderId: integer
+      status: string
+      total: number
+      placed: datetime
+      customer:
+        type: object
+        properties:
+          id: string
+          name: string
+          email: string
+    example:
+      orderId: 1201
+      status: "NEW"
+      total: 200.0
+      placed: 2025-05-05T14:45:00Z
+      customer:
+        id: "003XYZ654321"
+        name: "Jane Doe"
+        email: "jane.doe@example.com"
+
+  ProductView:
+    type: object
+    properties:
+      materialId: string
+      available: number
+    example:
+      materialId: "MAT-001"
+      available: 120
+
+  ErrorResponse:
+    type: object
+    properties:
+      error: string
+      description?: string
+    example:
+      error: "Downstream connectivity issue"
+      description: "Could not reach Order System API"
+
+/customers/{cid}/orders:
+  get:
+    description: |
+      Retrieves all orders placed by a specific customer.
+      Validates customer existence before filtering orders.
+    responses:
+      200:
+        body:
+          application/json:
+            type: OrderSummary[]
+            example: !include examples/customer-orders.json
+      404:
+        body:
+          application/json:
+            type: ErrorResponse
+            example:
+              error: "Resource not found"
+      502:
+        body:
+          application/json:
+            type: ErrorResponse
+            example:
+              error: "Downstream connectivity issue"
+              description: "Failed to reach one of the dependent APIs"
+      500:
+        body:
+          application/json:
+            type: ErrorResponse
+            example:
+              error: "INTERNAL_ERROR"
+              description: "Unexpected error occurred"
+
+/orders/{id}:
+  get:
+    description: |
+      Fetch a specific order and enrich it with customer details.
+    responses:
+      200:
+        body:
+          application/json:
+            type: CustomerOrderDetails
+            example: !include examples/enriched-order.json
+      404:
+        body:
+          application/json:
+            type: ErrorResponse
+            example:
+              error: "Resource not found"
+      502:
+        body:
+          application/json:
+            type: ErrorResponse
+            example:
+              error: "Downstream connectivity issue"
+              description: "Unable to fetch from Order/Customer API"
+      500:
+        body:
+          application/json:
+            type: ErrorResponse
+            example:
+              error: "INTERNAL_ERROR"
+              description: "Something unexpected happened"
+
+/products:
+  get:
+    description: |
+      Lists current inventory products with available quantity.
+    responses:
+      200:
+        body:
+          application/json:
+            type: ProductView[]
+            example: !include examples/products.json
+      502:
+        body:
+          application/json:
+            type: ErrorResponse
+            example:
+              error: "Downstream connectivity issue"
+              description: "Unable to connect to Inventory API"
+      500:
+        body:
+          application/json:
+            type: ErrorResponse
+            example:
+              error: "INTERNAL_ERROR"
+              description: "Unexpected failure during processing"

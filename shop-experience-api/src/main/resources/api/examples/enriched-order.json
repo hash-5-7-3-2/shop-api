@@ -1,0 +1,11 @@
+{
+  "orderId": 101,
+  "status": "NEW",
+  "total": 150.0,
+  "placed": "2025-05-05T10:30:00Z",
+  "customer": {
+    "id": "003XYZ654321",
+    "name": "Jane Doe",
+    "email": "jane.doe@example.com"
+  }
+}

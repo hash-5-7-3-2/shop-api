@@ -1,0 +1,170 @@
+#%RAML 1.0
+title: Orders System API
+version: v1
+baseUri: https://order-system-api-7c56my.5sc6y6-3.usa-e2.cloudhub.io/api/
+mediaType: application/json
+
+types:
+  Order:
+    type: object
+    properties:
+      orderId?: integer
+      customerId: string
+      status: string
+      orderTotal: number
+    example:
+      orderId: 101
+      customerId: "003XYZ654321"
+      status: "NEW"
+      orderTotal: 250.0
+
+  OrderCreate:
+    type: object
+    properties:
+      customerId: string
+      orderTotal: number
+      status?: string
+    example:
+      customerId: "003XYZ654321"
+      orderTotal: 150.00
+      status: "NEW"
+
+  OrderUpdate:
+    type: object
+    properties:
+      customerId: string
+      status: string
+      orderTotal: number
+    example:
+      customerId: "003XYZ654321"
+      status: "SHIPPED"
+      orderTotal: 300.0
+
+  SuccessResponse:
+    type: object
+    properties:
+      success: boolean
+      message: string
+    example:
+      success: true
+      message: "Order updated"
+
+  ErrorResponse:
+    type: object
+    properties:
+      error: string
+      description: string
+    example:
+      error: "Bad Request"
+      description: "customerId and orderTotal are required"
+
+  EmptyResponse:
+    type: array
+    items: any
+    example: []
+
+/orders:
+  get:
+    description: Retrieve all orders
+    responses:
+      200:
+        body:
+          application/json:
+            type: Order[]
+            example: [
+              {
+                orderId: 1,
+                customerId: "003XYZ654321",
+                status: "NEW",
+                orderTotal: 200
+              },
+              {
+                orderId: 2,
+                customerId: "003ABC123456",
+                status: "SHIPPED",
+                orderTotal: 300
+              }
+            ]
+      502:
+        body:
+          application/json:
+            type: ErrorResponse
+
+  post:
+    description: Create a new order
+    body:
+      application/json:
+        type: OrderCreate
+    responses:
+      201:
+        body:
+          application/json:
+            type: SuccessResponse
+            example:
+              success: true
+              message: "Order created"
+      400:
+        body:
+          application/json:
+            type: ErrorResponse
+      502:
+        body:
+          application/json:
+            type: ErrorResponse
+
+/orders/{order_id}:
+  uriParameters:
+    order_id:
+      type: integer
+      example: 101
+
+  get:
+    description: Retrieve an order by ID
+    responses:
+      200:
+        body:
+          application/json:
+            type: Order
+      404:
+        body:
+          application/json:
+            type: ErrorResponse
+      502:
+        body:
+          application/json:
+            type: ErrorResponse
+
+  put:
+    description: Update an existing order by ID
+    body:
+      application/json:
+        type: OrderUpdate
+    responses:
+      200:
+        body:
+          application/json:
+            type: SuccessResponse
+      400:
+        body:
+          application/json:
+            type: ErrorResponse
+      404:
+        body:
+          application/json:
+            type: ErrorResponse
+      502:
+        body:
+          application/json:
+            type: ErrorResponse
+
+  delete:
+    description: Delete an order by ID
+    responses:
+      204:
+        body:
+          application/json:
+            type: EmptyResponse
+      502:
+        body:
+          application/json:
+            type: ErrorResponse

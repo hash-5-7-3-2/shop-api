@@ -1,0 +1,313 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<mule xmlns:ee="http://www.mulesoft.org/schema/mule/ee/core"
+      xmlns:db="http://www.mulesoft.org/schema/mule/db"
+      xmlns:http="http://www.mulesoft.org/schema/mule/http"
+      xmlns="http://www.mulesoft.org/schema/mule/core"
+      xmlns:doc="http://www.mulesoft.org/schema/mule/documentation"
+      xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+      xsi:schemaLocation="
+          http://www.mulesoft.org/schema/mule/core http://www.mulesoft.org/schema/mule/core/current/mule.xsd
+          http://www.mulesoft.org/schema/mule/http http://www.mulesoft.org/schema/mule/http/current/mule-http.xsd
+          http://www.mulesoft.org/schema/mule/db http://www.mulesoft.org/schema/mule/db/current/mule-db.xsd
+          http://www.mulesoft.org/schema/mule/ee/core http://www.mulesoft.org/schema/mule/ee/core/current/mule-ee.xsd">
+
+    <configuration-properties file="config.properties" doc:name="Config Properties"/>
+
+    <http:listener-config name="HTTP_Listener_config" doc:name="HTTP Listener config">
+        <http:listener-connection host="0.0.0.0" port="8081"/>
+    </http:listener-config>
+
+    <db:config name="Database_Config" doc:name="Database Config">
+        <db:my-sql-connection host="${db.host}" port="${db.port}"
+                              user="${db.username}" password="${db.password}"
+                              database="${db.name}"/>
+    </db:config>
+
+    <!-- -&#45;&#45;&#45;&#45;&#45;&#45;&#45;&#45;&#45; GLOBAL ERROR HANDLER -&#45;&#45;&#45;&#45;&#45;&#45;&#45;&#45;&#45; -->
+    <error-handler name="global-error-handler">
+        <on-error-propagate type="CUSTOMER:NOT_FOUND">
+            <set-variable variableName="httpStatus" value="404"/>
+            <ee:transform><ee:message><ee:set-payload><![CDATA[%dw 2.0
+output application/json
+---
+{ error: "Not Found", description: error.description }]]></ee:set-payload></ee:message></ee:transform>
+        </on-error-propagate>
+
+        <on-error-propagate type="VALIDATION:BAD_REQUEST">
+            <set-variable variableName="httpStatus" value="400"/>
+            <ee:transform><ee:message><ee:set-payload><![CDATA[%dw 2.0
+output application/json
+---
+{ error: "Bad Request", description: error.description }]]></ee:set-payload></ee:message></ee:transform>
+        </on-error-propagate>
+
+        <on-error-propagate type="DB:CONNECTIVITY">
+            <set-variable variableName="httpStatus" value="502"/>
+            <ee:transform><ee:message><ee:set-payload><![CDATA[%dw 2.0
+output application/json
+---
+{ error: "Database connectivity issue", description: error.description default "Unable to connect to DB" }]]></ee:set-payload></ee:message></ee:transform>
+        </on-error-propagate>
+
+        <on-error-continue type="ANY">
+            <set-variable variableName="httpStatus" value="500"/>
+            <ee:transform><ee:message><ee:set-payload><![CDATA[%dw 2.0
+output application/json
+---
+{ error: error.errorType.namespace ++ ":" ++ error.errorType.identifier, description: error.description default "Internal Server Error" }]]></ee:set-payload></ee:message></ee:transform>
+        </on-error-continue>
+    </error-handler>
+
+    <!-- -&#45;&#45;&#45;&#45;&#45;&#45;&#45;&#45;&#45; FLOWS -&#45;&#45;&#45;&#45;&#45;&#45;&#45;&#45;&#45; -->
+
+    <!-- GET ALL -->
+    <flow name="getCustomers">
+
+    
+        <http:listener config-ref="HTTP_Listener_config" path="/api/customers" allowedMethods="GET">
+			<http:response statusCode="#[vars.httpStatus]" />
+			<http:error-response statusCode="#[vars.httpStatus]" >
+				<http:body ><![CDATA[#[payload]]]></http:body>
+			</http:error-response>
+		</http:listener>
+        <db:select config-ref="Database_Config">
+            <db:sql><![CDATA[SELECT * FROM Customers]]></db:sql>
+        </db:select>
+		<ee:transform><ee:message><ee:set-payload><![CDATA[%dw 2.0
+output application/json
+---
+payload]]></ee:set-payload></ee:message></ee:transform>
+		<error-handler >
+			<on-error-propagate enableNotifications="true" logException="true" doc:name="On Error Propagate" doc:id="dbf0dcce-fe00-404b-8e17-56003bf35f77" type="DB:CONNECTIVITY" >
+				<set-variable value="502" doc:name="Set Variable" doc:id="c85ddc04-60e5-4957-851a-d9f554ef6ae4" variableName="httpStatus" />
+				<ee:transform doc:name="Transform Message" doc:id="94b1a0d7-0690-417a-acab-13e5df752625" >
+					<ee:message >
+						<ee:set-payload ><![CDATA[%dw 2.0
+output application/json
+---
+{ error: "Database connectivity issue", description: error.description default "Unable to connect to DB" }]]></ee:set-payload>
+					</ee:message>
+				</ee:transform>
+			</on-error-propagate>
+		</error-handler>
+
+    
+</flow>
+
+    <!-- GET BY ID -->
+    <flow name="getCustomerById">
+        <http:listener config-ref="HTTP_Listener_config" path="/api/customers/{customer_id}" allowedMethods="GET">
+			<http:response statusCode="#[vars.httpStatus]" />
+			<http:error-response statusCode="#[vars.httpStatus]" >
+				<http:body ><![CDATA[#[payload]]]></http:body>
+			</http:error-response>
+		</http:listener>
+        <db:select config-ref="Database_Config">
+            <db:sql><![CDATA[SELECT * FROM Customers WHERE customer_id = :customer_id]]></db:sql>
+            <db:input-parameters><![CDATA[#["customer_id": attributes.uriParams.customer_id]]]></db:input-parameters>
+        </db:select>
+        <choice>
+            <when expression="#[!isEmpty(payload)]">
+                <ee:transform><ee:message><ee:set-payload><![CDATA[%dw 2.0
+output application/json
+---
+payload[0]]]></ee:set-payload></ee:message></ee:transform>
+            </when>
+            <otherwise>
+                <raise-error type="CUSTOMER:NOT_FOUND" description="Customer not found"/>
+            </otherwise>
+        </choice>
+        <error-handler ref="global-error-handler">
+			<on-error-propagate enableNotifications="true" logException="true" doc:name="On Error Propagate" doc:id="f7787c86-e573-4dc9-9d48-169b02baf7f5" type="CUSTOMER:NOT_FOUND" >
+				<set-variable value="404" doc:name="Set Variable" doc:id="8b83dee6-410e-4a68-a82b-98d407cb9b9d" variableName="httpStatus" />
+				<ee:transform doc:name="Transform Message" doc:id="e8d0cc8f-7387-4031-977a-e80abc20ade3" >
+					<ee:message >
+						<ee:set-payload ><![CDATA[%dw 2.0
+output application/json
+---
+{ error: "Not Found", description: error.description }]]></ee:set-payload>
+					</ee:message>
+				</ee:transform>
+			</on-error-propagate>
+			<on-error-propagate enableNotifications="true" logException="true" doc:name="On Error Propagate1" doc:id="db99c0ae-c290-40ba-90c0-125a33d55531" type="DB:CONNECTIVITY" >
+				<set-variable value="502" doc:name="Set Variable" doc:id="b160140c-4a78-4891-8be3-deda3c2288c7" variableName="httpStatus" />
+				<ee:transform doc:name="Transform Message" doc:id="a266d079-edea-4dbb-9cd5-07328a3e6029" >
+					<ee:message >
+						<ee:set-payload ><![CDATA[%dw 2.0
+output application/json
+---
+{ error: "Database connectivity issue", description: error.description default "Unable to connect to DB" }]]></ee:set-payload>
+					</ee:message>
+				</ee:transform>
+			</on-error-propagate>
+		</error-handler>
+        
+    </flow>
+
+    <!-- CREATE -->
+    <flow name="createCustomer">
+        <http:listener config-ref="HTTP_Listener_config" path="/api/customers" allowedMethods="POST">
+			<http:response statusCode="#[vars.httpStatus]" />
+			<http:error-response statusCode="#[vars.httpStatus]" >
+				<http:body ><![CDATA[#[payload]]]></http:body>
+			</http:error-response>
+		</http:listener>
+        <choice>
+            <when expression="#[(payload.customerId default null) == null or (payload.name default null) == null]">
+                <raise-error type="VALIDATION:BAD_REQUEST" description="customerId and name are required"/>
+            </when>
+        </choice>
+        <db:insert config-ref="Database_Config">
+            <db:sql><![CDATA[
+                INSERT INTO Customers (customer_id, name, email, phone)
+                VALUES (:customer_id, :name, :email, :phone)
+            ]]></db:sql>
+            <db:input-parameters><![CDATA[#[{
+  customer_id: payload.customerId,
+  name: payload.name,
+  email: payload.email default null,
+  phone: payload.phone default null
+}]]]></db:input-parameters>
+        </db:insert>
+        <set-variable variableName="httpStatus" value="201"/>
+        <ee:transform><ee:message><ee:set-payload><![CDATA[%dw 2.0
+output application/json
+---
+{ success: true, message: "Customer created" }]]></ee:set-payload></ee:message></ee:transform>
+		<error-handler >
+			<on-error-propagate enableNotifications="true" logException="true" doc:name="On Error Propagate" doc:id="a7ff7704-0f52-4180-8c77-cfbae2e0476d" type="VALIDATION:BAD_REQUEST" >
+				<set-variable value="400" doc:name="Set Variable" doc:id="ecd5de68-0460-4083-bb13-f3101ea62ccf" variableName="httpStatus" />
+				<ee:transform doc:name="Transform Message" doc:id="c9560ef3-b9e7-4d88-a3a8-9077aaacaae7" >
+					<ee:message >
+						<ee:set-payload ><![CDATA[%dw 2.0
+output application/json
+---
+{ error: "Bad Request", description: error.description }]]></ee:set-payload>
+					</ee:message>
+				</ee:transform>
+			</on-error-propagate>
+			<on-error-propagate enableNotifications="true" logException="true" doc:name="On Error Propagate1" doc:id="998d10c1-4820-41c0-896a-bedac281a9b6" type="DB:CONNECTIVITY" >
+				<set-variable value="502" doc:name="Set Variable" doc:id="614416c1-c0e8-4e36-a57c-f52f4e00bc38" variableName="httpStatus" />
+				<ee:transform doc:name="Transform Message" doc:id="7c641d67-d331-4617-8edd-73563cefc307" >
+					<ee:message >
+						<ee:set-payload ><![CDATA[%dw 2.0
+output application/json
+---
+{ error: "Database connectivity issue", description: error.description default "Unable to connect to DB" }]]></ee:set-payload>
+					</ee:message>
+				</ee:transform>
+			</on-error-propagate>
+		</error-handler>
+
+
+    
+</flow>
+
+    <!-- UPDATE -->
+    <flow name="updateCustomer">
+        <http:listener config-ref="HTTP_Listener_config" path="/api/customers/{customer_id}" allowedMethods="PUT">
+			<http:response statusCode="#[vars.httpStatus]" />
+			<http:error-response statusCode="#[vars.httpStatus]" >
+				<http:body ><![CDATA[#[payload]]]></http:body>
+			</http:error-response>
+		</http:listener>
+        <choice>
+            <when expression="#[(payload.name default null) == null]">
+                <raise-error type="VALIDATION:BAD_REQUEST" description="name field is required"/>
+            </when>
+        </choice>
+        <db:update config-ref="Database_Config">
+            <db:sql><![CDATA[
+               UPDATE Customers
+               SET name = :name, email = :email, phone = :phone
+               WHERE customer_id = :customer_id
+            ]]></db:sql>
+            <db:input-parameters><![CDATA[#[{
+  name: payload.name,
+  email: payload.email default null,
+  phone: payload.phone default null,
+  customer_id: attributes.uriParams.customer_id
+}]]]></db:input-parameters>
+        </db:update>
+        <choice>
+            <when expression="#[(payload.affectedRows default 0) > 0]">
+                <set-variable variableName="httpStatus" value="200"/>
+                <ee:transform><ee:message><ee:set-payload><![CDATA[%dw 2.0
+output application/json
+---
+{ success: true, message: "Customer updated" }]]></ee:set-payload></ee:message></ee:transform>
+            </when>
+            <otherwise>
+                <raise-error type="CUSTOMER:NOT_FOUND" description="No matching record"/>
+            </otherwise>
+        </choice>
+		<error-handler >
+			<on-error-propagate enableNotifications="true" logException="true" doc:name="On Error Propagate" doc:id="fba38979-07a3-4e4c-baeb-e3fb5ca45499" type="VALIDATION:BAD_REQUEST" >
+				<set-variable value="400" doc:name="Set Variable" doc:id="5ed4893b-bff3-42ca-813a-5e919a6d1a25" variableName="httpStatus" />
+				<ee:transform doc:name="Transform Message" doc:id="36f761bf-6901-4ad6-9a67-af27eec815cc" >
+					<ee:message >
+						<ee:set-payload ><![CDATA[%dw 2.0
+output application/json
+---
+{ error: "Bad Request", description: error.description }]]></ee:set-payload>
+					</ee:message>
+				</ee:transform>
+			</on-error-propagate>
+			<on-error-propagate enableNotifications="true" logException="true" doc:name="On Error Propagate1" doc:id="9922d01a-48e5-432b-b2a8-86c72faaafb1" type="CUSTOMER:NOT_FOUND" >
+				<set-variable value="404" doc:name="Set Variable" doc:id="5a3baf87-e3f0-4ea7-9a8d-479279b7fa41" variableName="httpStatus" />
+				<ee:transform doc:name="Transform Message" doc:id="f2f08c94-0f40-4e3c-bcb4-0bfae01c4d72" >
+					<ee:message >
+						<ee:set-payload ><![CDATA[%dw 2.0
+output application/json
+---
+{ error: "Not Found", description: error.description }]]></ee:set-payload>
+					</ee:message>
+				</ee:transform>
+			</on-error-propagate>
+			<on-error-propagate enableNotifications="true" logException="true" doc:name="On Error Propagate2" doc:id="382fc803-1318-481b-a8ef-f6dc4aa49eab" type="DB:CONNECTIVITY" >
+				<set-variable value="502" doc:name="Set Variable" doc:id="531117f8-468f-4789-abcc-c6f30c6611a4" variableName="httpStatus" />
+				<ee:transform doc:name="Transform Message" doc:id="7372a78d-5295-457d-9dea-a06a5d14f5dd" >
+					<ee:message >
+						<ee:set-payload ><![CDATA[%dw 2.0
+output application/json
+---
+{ error: "Database connectivity issue", description: error.description default "Unable to connect to DB" }]]></ee:set-payload>
+					</ee:message>
+				</ee:transform>
+			</on-error-propagate>
+		</error-handler>
+    
+        
+    
+</flow>
+
+    <!-- DELETE -->
+    <flow name="deleteCustomer">
+        <http:listener config-ref="HTTP_Listener_config" path="/api/customers/{customer_id}" allowedMethods="DELETE">
+			<http:response statusCode="#[vars.httpStatus]" />
+			<http:error-response statusCode="#[vars.httpStatus]" >
+				<http:body ><![CDATA[#[payload]]]></http:body>
+			</http:error-response>
+		</http:listener>
+        <db:delete config-ref="Database_Config">
+            <db:sql><![CDATA[DELETE FROM Customers WHERE customer_id = :customer_id]]></db:sql>
+            <db:input-parameters><![CDATA[#[customer_id: attributes.uriParams.customer_id]]]></db:input-parameters>
+        </db:delete>
+        <set-payload value="[]"/>
+		<set-variable value="204" doc:name="Set Variable" doc:id="23988cf9-2d5f-484c-9303-913edab91e98" variableName="httpStatus"/>
+		<error-handler >
+			<on-error-propagate enableNotifications="true" logException="true" doc:name="On Error Propagate" doc:id="6aee2936-e140-498a-a5e7-249f4ea62390" type="DB:CONNECTIVITY" >
+				<set-variable value="502" doc:name="Set Variable" doc:id="41388ba8-7fff-4a65-907c-e40e7aebc2d0" variableName="httpStatus" />
+				<ee:transform doc:name="Transform Message" doc:id="960b2b89-83fd-4e64-ad40-ff51ebf36b8c" >
+					<ee:message >
+						<ee:set-payload ><![CDATA[%dw 2.0
+output application/json
+---
+{ error: "Database connectivity issue", description: error.description default "Unable to connect to DB" }]]></ee:set-payload>
+					</ee:message>
+				</ee:transform>
+			</on-error-propagate>
+		</error-handler>
+    
+</flow>
+</mule>
