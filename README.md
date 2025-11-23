@@ -23,11 +23,11 @@
 
 | API | CloudHub URL | RAML |
 |-----|--------------|------|
-| Experience | `https://shop-experience-api-awuj9z.5sc6y6-3.usa-e2.cloudhub.io/shop/` | [`raml`](https://anypoint.mulesoft.com/exchange/portals/na-1108/b0b97105-d2a1-4e8e-a560-1560ca4d6660/shop-experience-api/minor/1.0/console/summary/) |
-| Process    | `https://order-process-api-7c56my.5sc6y6-1.usa-e2.cloudhub.io/api/`    | [`raml`](https://anypoint.mulesoft.com/exchange/portals/na-1108/b0b97105-d2a1-4e8e-a560-1560ca4d6660/order-process-api/minor/1.0/console/summary/) |
-| Orders     | `https://order-system-api-7c56my.5sc6y6-3.usa-e2.cloudhub.io/api/`| [`raml`](https://anypoint.mulesoft.com/exchange/portals/na-1108/b0b97105-d2a1-4e8e-a560-1560ca4d6660/orders-system-api/minor/1.0/console/summary/) |
-| Inventory  | `https://inventory-system-api-7c56my.5sc6y6-3.usa-e2.cloudhub.io/api/`| [`raml`](https://anypoint.mulesoft.com/exchange/portals/na-1108/b0b97105-d2a1-4e8e-a560-1560ca4d6660/inventory-system-api/minor/1.0/console/summary/) |
-| Customers  | `https://customer-system-api-7c56my.5sc6y6-3.usa-e2.cloudhub.io/api/`| [`raml`](https://anypoint.mulesoft.com/exchange/portals/na-1108/b0b97105-d2a1-4e8e-a560-1560ca4d6660/customer-system-api/minor/1.0/console/summary/) |
+| Experience | [`raml`](https://anypoint.mulesoft.com/exchange/portals/na-1108/b0b97105-d2a1-4e8e-a560-1560ca4d6660/shop-experience-api/minor/1.0/console/summary/) |
+| Process    | [`raml`](https://anypoint.mulesoft.com/exchange/portals/na-1108/b0b97105-d2a1-4e8e-a560-1560ca4d6660/order-process-api/minor/1.0/console/summary/) |
+| Orders     | [`raml`](https://anypoint.mulesoft.com/exchange/portals/na-1108/b0b97105-d2a1-4e8e-a560-1560ca4d6660/orders-system-api/minor/1.0/console/summary/) |
+| Inventory  | [`raml`](https://anypoint.mulesoft.com/exchange/portals/na-1108/b0b97105-d2a1-4e8e-a560-1560ca4d6660/inventory-system-api/minor/1.0/console/summary/) |
+| Customers  | [`raml`](https://anypoint.mulesoft.com/exchange/portals/na-1108/b0b97105-d2a1-4e8e-a560-1560ca4d6660/customer-system-api/minor/1.0/console/summary/) |
 
 ---
 
