@@ -19,16 +19,6 @@
 
 ---
 
-## 🔗 API Endpoints (Dev)
-
-| API | CloudHub URL | RAML |
-|-----|--------------|------|
-| Experience | [`raml`](https://anypoint.mulesoft.com/exchange/portals/na-1108/b0b97105-d2a1-4e8e-a560-1560ca4d6660/shop-experience-api/minor/1.0/console/summary/) |
-| Process    | [`raml`](https://anypoint.mulesoft.com/exchange/portals/na-1108/b0b97105-d2a1-4e8e-a560-1560ca4d6660/order-process-api/minor/1.0/console/summary/) |
-| Orders     | [`raml`](https://anypoint.mulesoft.com/exchange/portals/na-1108/b0b97105-d2a1-4e8e-a560-1560ca4d6660/orders-system-api/minor/1.0/console/summary/) |
-| Inventory  | [`raml`](https://anypoint.mulesoft.com/exchange/portals/na-1108/b0b97105-d2a1-4e8e-a560-1560ca4d6660/inventory-system-api/minor/1.0/console/summary/) |
-| Customers  | [`raml`](https://anypoint.mulesoft.com/exchange/portals/na-1108/b0b97105-d2a1-4e8e-a560-1560ca4d6660/customer-system-api/minor/1.0/console/summary/) |
-
 ---
 
 ## 🗄 SQL Schema & Sample Data
